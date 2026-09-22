@@ -29,29 +29,36 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
     const allGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
     const stockMatrix: StockSummaryItem[] = allGroups.map((bg) => {
       const avail = mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Available').length;
+      const res = mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Reserved').length;
+      const iss = mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Issued').length;
+      const exp = mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Expired').length;
+      const vol = mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Available').reduce((acc, curr) => acc + (curr.volume_ml || 0), 0);
       return {
         blood_group: bg,
         available_units: avail,
-        reserved_units: 0,
-        issued_units: 5,
-        expired_units: 2,
-        total_available_volume_ml: avail * 350
+        reserved_units: res,
+        issued_units: iss,
+        expired_units: exp,
+        total_available_volume_ml: vol
       };
     });
 
+    const availUnits = mockStore.bloodUnits.filter((u) => u.status === 'Available');
+    const totalVol = availUnits.reduce((acc, curr) => acc + (curr.volume_ml || 0), 0);
+
     return {
       total_donors: mockStore.donors.length,
-      total_donations: 30,
-      available_units: mockStore.bloodUnits.filter((u) => u.status === 'Available').length,
-      available_volume_ml: 12500,
-      pending_requests: mockStore.bloodRequests.length,
-      emergency_requests: mockStore.bloodRequests.filter((r) => r.urgency === 'Emergency').length,
+      total_donations: mockStore.donations.length,
+      available_units: availUnits.length,
+      available_volume_ml: totalVol,
+      pending_requests: mockStore.bloodRequests.filter((r) => r.request_status === 'Pending' || r.request_status === 'Approved').length,
+      emergency_requests: mockStore.bloodRequests.filter((r) => r.urgency === 'Emergency' && (r.request_status === 'Pending' || r.request_status === 'Approved')).length,
       total_hospitals: mockStore.hospitals.length,
-      expiring_soon_count: 2,
+      expiring_soon_count: 0,
       stock_matrix: stockMatrix,
       recent_emergency_requests: mockStore.bloodRequests.filter((r) => r.urgency === 'Emergency'),
-      expiring_units_list: mockStore.bloodUnits.slice(0, 3),
-      db_status: { isUsingPgMem: true, status: 'Running on Static GitHub Pages (Client Engine)' }
+      expiring_units_list: [],
+      db_status: { isUsingPgMem: true, status: 'Running on Static Engine (Ready for Manual Entry)' }
     };
   }
 };
