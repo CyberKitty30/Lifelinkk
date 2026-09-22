@@ -25,7 +25,6 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
     const res = await API.get('/dashboard/stats');
     return res.data.data;
   } catch (err) {
-    // Fallback for static GitHub Pages deployment
     const allGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
     const stockMatrix: StockSummaryItem[] = allGroups.map((bg) => {
       const avail = mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Available').length;
@@ -72,7 +71,7 @@ export const getDonors = async (params?: any): Promise<Donor[]> => {
     let result = [...mockStore.donors];
     if (params?.search) {
       const q = params.search.toLowerCase();
-      result = result.filter((d) => d.full_name.toLowerCase().includes(q) || d.email.toLowerCase().includes(q) || d.phone.includes(q));
+      result = result.filter((d) => d.full_name?.toLowerCase().includes(q) || d.email?.toLowerCase().includes(q) || d.phone?.includes(q));
     }
     if (params?.blood_group) {
       result = result.filter((d) => d.blood_group === params.blood_group);
@@ -89,13 +88,30 @@ export const getDonorById = async (id: number): Promise<Donor> => {
     const res = await API.get(`/donors/${id}`);
     return res.data.data;
   } catch {
-    const d = mockStore.donors.find((item) => item.donor_id === Number(id)) || mockStore.donors[0];
+    const d = mockStore.donors.find((item) => item.donor_id === Number(id));
+    if (!d) {
+      return {
+        donor_id: id,
+        full_name: 'Unknown Donor',
+        date_of_birth: '',
+        gender: 'Male',
+        blood_group: 'O+',
+        phone: '',
+        email: '',
+        city: '',
+        address: '',
+        last_donation_date: null,
+        registration_date: '',
+        eligibility_status: 'Eligible',
+        donation_history: [],
+        total_donations: 0
+      };
+    }
+    const donorDonations = mockStore.donations.filter((dn) => dn.donor_id === d.donor_id);
     return {
       ...d,
-      donation_history: [
-        { donation_id: 101, donor_id: d.donor_id, donation_date: '2026-08-15', donation_center_id: 1, center_name: 'Red Cross Central Blood Bank', blood_volume_ml: 450, screening_status: 'Passed', donation_status: 'Completed' }
-      ],
-      total_donations: 1
+      donation_history: donorDonations,
+      total_donations: donorDonations.length
     };
   }
 };
@@ -105,21 +121,23 @@ export const createDonor = async (data: Partial<Donor>): Promise<Donor> => {
     const res = await API.post('/donors', data);
     return res.data.data;
   } catch {
+    const newId = mockStore.donors.length > 0 ? Math.max(...mockStore.donors.map((d) => d.donor_id)) + 1 : 1;
     const newDonor: Donor = {
-      donor_id: mockStore.donors.length + 1,
+      donor_id: newId,
       full_name: data.full_name || 'New Donor',
       date_of_birth: data.date_of_birth || '1995-01-01',
       gender: data.gender || 'Male',
       blood_group: data.blood_group || 'O+',
-      phone: data.phone || '+91 99000 00000',
-      email: data.email || 'donor@lifelink.org',
+      phone: data.phone || '',
+      email: data.email || '',
       city: data.city || 'Mumbai',
-      address: data.address || 'Address',
+      address: data.address || '',
       last_donation_date: null,
       registration_date: new Date().toISOString().split('T')[0],
       eligibility_status: 'Eligible'
     };
     mockStore.donors.unshift(newDonor);
+    mockStore.saveToLocalStorage();
     return newDonor;
   }
 };
@@ -132,9 +150,10 @@ export const updateDonor = async (id: number, data: Partial<Donor>): Promise<Don
     const idx = mockStore.donors.findIndex((d) => d.donor_id === Number(id));
     if (idx !== -1) {
       mockStore.donors[idx] = { ...mockStore.donors[idx], ...data };
+      mockStore.saveToLocalStorage();
       return mockStore.donors[idx];
     }
-    return mockStore.donors[0];
+    throw new Error('Donor not found');
   }
 };
 
@@ -143,6 +162,7 @@ export const deleteDonor = async (id: number): Promise<void> => {
     await API.delete(`/donors/${id}`);
   } catch {
     mockStore.donors = mockStore.donors.filter((d) => d.donor_id !== Number(id));
+    mockStore.saveToLocalStorage();
   }
 };
 
@@ -152,18 +172,14 @@ export const getDonations = async (params?: any): Promise<Donation[]> => {
     const res = await API.get('/donations', { params });
     return res.data.data;
   } catch {
-    return mockStore.donors.slice(0, 15).map((d, i) => ({
-      donation_id: i + 1,
-      donor_id: d.donor_id,
-      donor_name: d.full_name,
-      blood_group: d.blood_group,
-      donation_date: '2026-09-01',
-      donation_center_id: 1,
-      center_name: 'Red Cross Central Blood Bank',
-      blood_volume_ml: 450,
-      screening_status: 'Passed',
-      donation_status: 'Completed'
-    }));
+    let list = [...mockStore.donations];
+    if (params?.screening_status) {
+      list = list.filter((d) => d.screening_status === params.screening_status);
+    }
+    if (params?.donor_id) {
+      list = list.filter((d) => d.donor_id === Number(params.donor_id));
+    }
+    return list;
   }
 };
 
@@ -173,19 +189,54 @@ export const recordDonation = async (data: any): Promise<any> => {
     return res.data;
   } catch {
     const donor = mockStore.donors.find((d) => d.donor_id === Number(data.donor_id));
-    const newUnit: BloodUnit = {
-      unit_id: mockStore.bloodUnits.length + 100,
-      donation_id: 999,
+    const center = mockStore.donationCenters.find((c) => c.center_id === Number(data.donation_center_id));
+    
+    const donationId = mockStore.donations.length > 0 ? Math.max(...mockStore.donations.map((d) => d.donation_id)) + 1 : 1;
+    
+    const newDonation: Donation = {
+      donation_id: donationId,
+      donor_id: Number(data.donor_id),
       donor_name: donor?.full_name || 'Donor',
       blood_group: donor?.blood_group || 'O+',
-      collection_date: data.donation_date || new Date().toISOString().split('T')[0],
-      expiry_date: '2026-11-01',
-      volume_ml: data.blood_volume_ml || 450,
-      component_type: data.component_type || 'Whole Blood',
-      status: 'Available'
+      donation_date: data.donation_date || new Date().toISOString().split('T')[0],
+      donation_center_id: Number(data.donation_center_id),
+      center_name: center?.center_name || 'Red Cross Central Blood Bank',
+      blood_volume_ml: Number(data.blood_volume_ml) || 450,
+      screening_status: data.screening_status || 'Passed',
+      donation_status: 'Completed'
     };
-    mockStore.bloodUnits.unshift(newUnit);
-    return { success: true, message: 'Donation recorded in static mock database' };
+
+    mockStore.donations.unshift(newDonation);
+
+    if (donor) {
+      donor.last_donation_date = newDonation.donation_date;
+    }
+
+    if (data.screening_status === 'Passed') {
+      const unitId = mockStore.bloodUnits.length > 0 ? Math.max(...mockStore.bloodUnits.map((u) => u.unit_id)) + 100 : 101;
+      let days = 42;
+      if (data.component_type === 'Platelets') days = 7;
+      if (data.component_type === 'Plasma') days = 365;
+
+      const expDate = new Date();
+      expDate.setDate(expDate.getDate() + days);
+
+      const newUnit: BloodUnit = {
+        unit_id: unitId,
+        donation_id: newDonation.donation_id,
+        donor_name: donor?.full_name || 'Donor',
+        blood_group: donor?.blood_group || 'O+',
+        collection_date: newDonation.donation_date,
+        expiry_date: expDate.toISOString().split('T')[0],
+        volume_ml: newDonation.blood_volume_ml,
+        component_type: data.component_type || 'Whole Blood',
+        status: 'Available'
+      };
+      mockStore.bloodUnits.unshift(newUnit);
+    }
+
+    mockStore.saveToLocalStorage();
+    return { success: true, message: 'Donation recorded successfully!' };
   }
 };
 
@@ -212,10 +263,10 @@ export const getStockSummary = async (): Promise<StockSummaryItem[]> => {
     return allGroups.map((bg) => ({
       blood_group: bg,
       available_units: mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Available').length,
-      reserved_units: 0,
-      issued_units: 3,
-      expired_units: 1,
-      total_available_volume_ml: 1200
+      reserved_units: mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Reserved').length,
+      issued_units: mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Issued').length,
+      expired_units: mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Expired').length,
+      total_available_volume_ml: mockStore.bloodUnits.filter((u) => u.blood_group === bg && u.status === 'Available').reduce((acc, curr) => acc + (curr.volume_ml || 0), 0)
     }));
   }
 };
@@ -226,7 +277,10 @@ export const updateUnitStatus = async (id: number, status: string): Promise<Bloo
     return res.data.data;
   } catch {
     const unit = mockStore.bloodUnits.find((u) => u.unit_id === Number(id));
-    if (unit) unit.status = status as any;
+    if (unit) {
+      unit.status = status as any;
+      mockStore.saveToLocalStorage();
+    }
     return unit || mockStore.bloodUnits[0];
   }
 };
@@ -251,7 +305,7 @@ export const getRequestById = async (id: number): Promise<BloodRequest> => {
     return res.data.data;
   } catch {
     const req = mockStore.bloodRequests.find((r) => r.request_id === Number(id)) || mockStore.bloodRequests[0];
-    const compatible = mockStore.bloodUnits.filter((u) => (u.blood_group === req.blood_group || u.blood_group === 'O-') && u.status === 'Available');
+    const compatible = req ? mockStore.bloodUnits.filter((u) => (u.blood_group === req.blood_group || u.blood_group === 'O-') && u.status === 'Available') : [];
     return {
       ...req,
       compatible_units: compatible,
@@ -266,14 +320,15 @@ export const createRequest = async (data: Partial<BloodRequest>): Promise<BloodR
     return res.data.data;
   } catch {
     const hosp = mockStore.hospitals.find((h) => h.hospital_id === Number(data.hospital_id));
+    const reqId = mockStore.bloodRequests.length > 0 ? Math.max(...mockStore.bloodRequests.map((r) => r.request_id)) + 1 : 1;
     const newReq: BloodRequest = {
-      request_id: mockStore.bloodRequests.length + 10,
+      request_id: reqId,
       hospital_id: data.hospital_id || 1,
       hospital_name: hosp?.hospital_name || 'Hospital',
       hospital_city: hosp?.city || 'Mumbai',
       emergency_contact: hosp?.emergency_contact || '+91 99999 99999',
       patient_id: data.patient_id || null,
-      patient_name: 'Patient',
+      patient_name: data.patient_name || 'Patient',
       blood_group: data.blood_group || 'A+',
       component_type: data.component_type || 'Whole Blood',
       units_required: data.units_required || 2,
@@ -283,6 +338,7 @@ export const createRequest = async (data: Partial<BloodRequest>): Promise<BloodR
       request_status: 'Pending'
     };
     mockStore.bloodRequests.unshift(newReq);
+    mockStore.saveToLocalStorage();
     return newReq;
   }
 };
@@ -293,7 +349,10 @@ export const updateRequestStatus = async (id: number, request_status: string): P
     return res.data.data;
   } catch {
     const req = mockStore.bloodRequests.find((r) => r.request_id === Number(id));
-    if (req) req.request_status = request_status as any;
+    if (req) {
+      req.request_status = request_status as any;
+      mockStore.saveToLocalStorage();
+    }
     return req || mockStore.bloodRequests[0];
   }
 };
@@ -320,6 +379,22 @@ export const issueBloodUnits = async (data: { request_id: number; unit_ids: numb
       const u = mockStore.bloodUnits.find((unit) => unit.unit_id === uid);
       if (u) u.status = 'Issued';
     });
+
+    const issueId = mockStore.bloodIssues.length > 0 ? Math.max(...mockStore.bloodIssues.map((i) => i.issue_id)) + 1 : 1;
+    const unit = mockStore.bloodUnits.find((u) => u.unit_id === data.unit_ids[0]);
+    mockStore.bloodIssues.unshift({
+      issue_id: issueId,
+      request_id: data.request_id,
+      unit_id: data.unit_ids[0] || 1,
+      issue_date: new Date().toISOString().split('T')[0],
+      issued_by: data.issued_by || 'Staff',
+      quantity_ml: unit?.volume_ml || 450,
+      blood_group: unit?.blood_group || 'O+',
+      component_type: unit?.component_type || 'Whole Blood',
+      hospital_name: req?.hospital_name || 'Hospital'
+    });
+
+    mockStore.saveToLocalStorage();
 
     return {
       success: true,
@@ -349,7 +424,10 @@ export const getHospitalById = async (id: number): Promise<any> => {
     const res = await API.get(`/hospitals/${id}`);
     return res.data.data;
   } catch {
-    const h = mockStore.hospitals.find((item) => item.hospital_id === Number(id)) || mockStore.hospitals[0];
+    const h = mockStore.hospitals.find((item) => item.hospital_id === Number(id));
+    if (!h) {
+      return { hospital_id: id, hospital_name: 'Unknown Hospital', address: '', city: '', phone: '', email: '', emergency_contact: '', patients: [], blood_requests: [] };
+    }
     const p = mockStore.patients.filter((item) => item.hospital_id === h.hospital_id);
     const reqs = mockStore.bloodRequests.filter((item) => item.hospital_id === h.hospital_id);
     return { ...h, patients: p, blood_requests: reqs };
@@ -361,8 +439,9 @@ export const createHospital = async (data: Partial<Hospital>): Promise<Hospital>
     const res = await API.post('/hospitals', data);
     return res.data.data;
   } catch {
+    const hospId = mockStore.hospitals.length > 0 ? Math.max(...mockStore.hospitals.map((h) => h.hospital_id)) + 1 : 1;
     const newHosp: Hospital = {
-      hospital_id: mockStore.hospitals.length + 1,
+      hospital_id: hospId,
       hospital_name: data.hospital_name || 'Hospital',
       address: data.address || 'Address',
       city: data.city || 'Mumbai',
@@ -371,6 +450,7 @@ export const createHospital = async (data: Partial<Hospital>): Promise<Hospital>
       emergency_contact: data.emergency_contact || '+91 99999 99999'
     };
     mockStore.hospitals.unshift(newHosp);
+    mockStore.saveToLocalStorage();
     return newHosp;
   }
 };
@@ -383,9 +463,10 @@ export const updateHospital = async (id: number, data: Partial<Hospital>): Promi
     const idx = mockStore.hospitals.findIndex((h) => h.hospital_id === Number(id));
     if (idx !== -1) {
       mockStore.hospitals[idx] = { ...mockStore.hospitals[idx], ...data };
+      mockStore.saveToLocalStorage();
       return mockStore.hospitals[idx];
     }
-    return mockStore.hospitals[0];
+    throw new Error('Hospital not found');
   }
 };
 
@@ -394,6 +475,7 @@ export const deleteHospital = async (id: number): Promise<void> => {
     await API.delete(`/hospitals/${id}`);
   } catch {
     mockStore.hospitals = mockStore.hospitals.filter((h) => h.hospital_id !== Number(id));
+    mockStore.saveToLocalStorage();
   }
 };
 
@@ -417,8 +499,9 @@ export const createPatient = async (data: Partial<Patient>): Promise<Patient> =>
     const res = await API.post('/patients', data);
     return res.data.data;
   } catch {
+    const patId = mockStore.patients.length > 0 ? Math.max(...mockStore.patients.map((p) => p.patient_id)) + 1 : 1;
     const newPatient: Patient = {
-      patient_id: mockStore.patients.length + 1,
+      patient_id: patId,
       hospital_id: data.hospital_id || 1,
       patient_name: data.patient_name || 'Patient',
       date_of_birth: data.date_of_birth || '1990-01-01',
@@ -428,6 +511,7 @@ export const createPatient = async (data: Partial<Patient>): Promise<Patient> =>
       medical_notes: data.medical_notes || ''
     };
     mockStore.patients.unshift(newPatient);
+    mockStore.saveToLocalStorage();
     return newPatient;
   }
 };
@@ -440,9 +524,10 @@ export const updatePatient = async (id: number, data: Partial<Patient>): Promise
     const idx = mockStore.patients.findIndex((p) => p.patient_id === Number(id));
     if (idx !== -1) {
       mockStore.patients[idx] = { ...mockStore.patients[idx], ...data };
+      mockStore.saveToLocalStorage();
       return mockStore.patients[idx];
     }
-    return mockStore.patients[0];
+    throw new Error('Patient not found');
   }
 };
 
@@ -451,6 +536,7 @@ export const deletePatient = async (id: number): Promise<void> => {
     await API.delete(`/patients/${id}`);
   } catch {
     mockStore.patients = mockStore.patients.filter((p) => p.patient_id !== Number(id));
+    mockStore.saveToLocalStorage();
   }
 };
 
@@ -478,8 +564,9 @@ export const createStaff = async (data: Partial<Staff>): Promise<Staff> => {
     const res = await API.post('/staff', data);
     return res.data.data;
   } catch {
+    const staffId = mockStore.staff.length > 0 ? Math.max(...mockStore.staff.map((s) => s.staff_id)) + 1 : 1;
     const newStaff: Staff = {
-      staff_id: mockStore.staff.length + 1,
+      staff_id: staffId,
       center_id: data.center_id || 1,
       center_name: 'Center',
       full_name: data.full_name || 'Staff Member',
@@ -488,6 +575,7 @@ export const createStaff = async (data: Partial<Staff>): Promise<Staff> => {
       email: data.email || 'staff@lifelink.org'
     };
     mockStore.staff.unshift(newStaff);
+    mockStore.saveToLocalStorage();
     return newStaff;
   }
 };
@@ -500,9 +588,10 @@ export const updateStaff = async (id: number, data: Partial<Staff>): Promise<Sta
     const idx = mockStore.staff.findIndex((s) => s.staff_id === Number(id));
     if (idx !== -1) {
       mockStore.staff[idx] = { ...mockStore.staff[idx], ...data };
+      mockStore.saveToLocalStorage();
       return mockStore.staff[idx];
     }
-    return mockStore.staff[0];
+    throw new Error('Staff member not found');
   }
 };
 
@@ -511,6 +600,7 @@ export const deleteStaff = async (id: number): Promise<void> => {
     await API.delete(`/staff/${id}`);
   } catch {
     mockStore.staff = mockStore.staff.filter((s) => s.staff_id !== Number(id));
+    mockStore.saveToLocalStorage();
   }
 };
 
@@ -520,19 +610,48 @@ export const getAnalyticsQueries = async (): Promise<SqlQueryResult[]> => {
     const res = await API.get('/analytics/queries');
     return res.data.data;
   } catch {
-    return PREDEFINED_QUERIES.map((q) => ({
-      ...q,
-      execution_time_ms: Math.floor(Math.random() * 4) + 1,
-      columns: ['blood_group', 'available_units', 'total_volume_ml'],
-      rows: [
-        { blood_group: 'O+', available_units: 8, total_volume_ml: 2800 },
-        { blood_group: 'A+', available_units: 6, total_volume_ml: 2100 },
-        { blood_group: 'B+', available_units: 5, total_volume_ml: 1750 },
-        { blood_group: 'AB+', available_units: 3, total_volume_ml: 900 },
-        { blood_group: 'O-', available_units: 4, total_volume_ml: 1400 }
-      ],
-      row_count: 5
-    }));
+    return PREDEFINED_QUERIES.map((q) => {
+      let rows: any[] = [];
+      if (q.id === 1) {
+        const groups: Record<string, { count: number; volume: number }> = {};
+        mockStore.bloodUnits.filter((u) => u.status === 'Available').forEach((u) => {
+          const key = `${u.blood_group}_${u.component_type}`;
+          if (!groups[key]) groups[key] = { count: 0, volume: 0 };
+          groups[key].count++;
+          groups[key].volume += u.volume_ml;
+        });
+        rows = Object.entries(groups).map(([key, val]) => {
+          const [bg, comp] = key.split('_');
+          return { blood_group: bg, component_type: comp, available_units: val.count, total_volume_ml: val.volume };
+        });
+      } else if (q.id === 2) {
+        const groups: Record<string, { total: number; eligible: number }> = {};
+        mockStore.donors.forEach((d) => {
+          if (!groups[d.blood_group]) groups[d.blood_group] = { total: 0, eligible: 0 };
+          groups[d.blood_group].total++;
+          if (d.eligibility_status === 'Eligible') groups[d.blood_group].eligible++;
+        });
+        rows = Object.entries(groups).map(([bg, val]) => ({ blood_group: bg, total_donors: val.total, eligible_donors: val.eligible }));
+      } else if (q.id === 5) {
+        const counts: Record<number, number> = {};
+        mockStore.donations.forEach((d) => {
+          counts[d.donor_id] = (counts[d.donor_id] || 0) + 1;
+        });
+        rows = mockStore.donors
+          .filter((d) => counts[d.donor_id] > 1)
+          .map((d) => ({ donor_id: d.donor_id, full_name: d.full_name, blood_group: d.blood_group, phone: d.phone, total_donations: counts[d.donor_id], last_donation: d.last_donation_date || 'N/A' }));
+      } else if (q.id === 6) {
+        rows = mockStore.bloodRequests
+          .filter((r) => r.urgency === 'Emergency' && (r.request_status === 'Pending' || r.request_status === 'Approved'))
+          .map((r) => ({ request_id: r.request_id, hospital_name: r.hospital_name, emergency_contact: r.emergency_contact, patient_name: r.patient_name || 'N/A', blood_group: r.blood_group, units_required: r.units_required }));
+      }
+      return {
+        ...q,
+        execution_time_ms: 1,
+        rows,
+        row_count: rows.length
+      };
+    });
   }
 };
 
@@ -551,7 +670,7 @@ export const executeCustomSql = async (sql: string): Promise<any> => {
         blood_group: d.blood_group,
         city: d.city
       })),
-      row_count: 5
+      row_count: mockStore.donors.length
     };
   }
 };
