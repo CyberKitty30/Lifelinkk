@@ -11,7 +11,9 @@ import {
   DonationCenter,
   StockSummaryItem,
   DashboardStats,
-  SqlQueryResult
+  SqlQueryResult,
+  AuthUser,
+  UserRole
 } from '../types';
 import { mockStore } from './mockStore';
 import { PREDEFINED_QUERIES } from './analyticsCatalog';
@@ -673,4 +675,93 @@ export const executeCustomSql = async (sql: string): Promise<any> => {
       row_count: mockStore.donors.length
     };
   }
+};
+
+// Auth & Session Management
+export const DEMO_USERS: AuthUser[] = [
+  {
+    id: 1,
+    username: 'admin',
+    name: 'Dr. Rajesh Verma',
+    email: 'admin@lifelink.org',
+    role: 'admin',
+    badgeTitle: 'System Administrator'
+  },
+  {
+    id: 2,
+    username: 'staff',
+    name: 'Pooja Sharma',
+    email: 'staff@lifelink.org',
+    role: 'staff',
+    badgeTitle: 'Senior Phlebotomist'
+  },
+  {
+    id: 3,
+    username: 'hospital',
+    name: 'Apex Healthcare Hub',
+    email: 'hospital@apex.org',
+    role: 'hospital',
+    badgeTitle: 'Hospital Representative'
+  },
+  {
+    id: 4,
+    username: 'donor',
+    name: 'Ananya Iyer',
+    email: 'donor@lifelink.org',
+    role: 'donor',
+    badgeTitle: 'Registered Blood Donor'
+  }
+];
+
+export const getCurrentUserSession = (): AuthUser | null => {
+  try {
+    const stored = localStorage.getItem('lifelink_current_user');
+    if (stored) return JSON.parse(stored);
+  } catch (e) {
+    console.error('Failed reading user session:', e);
+  }
+  return null;
+};
+
+export const setCurrentUserSession = (user: AuthUser | null): void => {
+  if (user) {
+    localStorage.setItem('lifelink_current_user', JSON.stringify(user));
+  } else {
+    localStorage.removeItem('lifelink_current_user');
+  }
+};
+
+export const loginUser = async (emailStr: string, passwordStr: string, requestedRole?: UserRole): Promise<AuthUser> => {
+  try {
+    const res = await API.post('/auth/login', { email: emailStr, password: passwordStr, role: requestedRole });
+    const user: AuthUser = res.data.data;
+    setCurrentUserSession(user);
+    return user;
+  } catch {
+    const targetEmail = (emailStr || '').toLowerCase().trim();
+    const found = DEMO_USERS.find(
+      (u) => (u.email.toLowerCase() === targetEmail || u.username.toLowerCase() === targetEmail)
+    );
+
+    if (!found) {
+      const customUser: AuthUser = {
+        id: Date.now(),
+        username: emailStr.split('@')[0] || 'user',
+        name: emailStr.split('@')[0] || 'User',
+        email: emailStr,
+        role: requestedRole || 'admin',
+        badgeTitle: (requestedRole || 'admin').toUpperCase()
+      };
+      setCurrentUserSession(customUser);
+      return customUser;
+    }
+
+    const finalUser = requestedRole && found.role === 'admin' ? { ...found, role: requestedRole } : found;
+    setCurrentUserSession(finalUser);
+    return finalUser;
+  }
+};
+
+export const logoutUser = (): void => {
+  setCurrentUserSession(null);
 };

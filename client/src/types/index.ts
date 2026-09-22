@@ -155,3 +155,15 @@ export interface SqlQueryResult {
   row_count: number;
   error?: string;
 }
+
+export type UserRole = 'admin' | 'staff' | 'hospital' | 'donor';
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  badgeTitle: string;
+  associatedId?: number;
+}

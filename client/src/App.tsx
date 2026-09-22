@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
+import { LoginPage } from './components/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { DonorsPage } from './pages/DonorsPage';
 import { DonationsPage } from './pages/DonationsPage';
@@ -10,9 +11,11 @@ import { HospitalsPage } from './pages/HospitalsPage';
 import { PatientsPage } from './pages/PatientsPage';
 import { StaffPage } from './pages/StaffPage';
 import { SQLAnalyticsPage } from './pages/SQLAnalyticsPage';
-import { getDashboardStats } from './services/api';
+import { getDashboardStats, getCurrentUserSession, logoutUser } from './services/api';
+import { AuthUser } from './types';
 
 export const App: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dbStatus, setDbStatus] = useState<{ isUsingPgMem: boolean; status: string }>({
     isUsingPgMem: false,
@@ -20,12 +23,27 @@ export const App: React.FC = () => {
   });
 
   useEffect(() => {
+    // Load persisted user session or default to null
+    const session = getCurrentUserSession();
+    if (session) {
+      setCurrentUser(session);
+    }
+
     getDashboardStats()
       .then((stats) => {
         if (stats.db_status) setDbStatus(stats.db_status);
       })
       .catch(() => {});
   }, []);
+
+  const handleLogout = () => {
+    logoutUser();
+    setCurrentUser(null);
+  };
+
+  if (!currentUser) {
+    return <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />;
+  }
 
   const getHeaderInfo = () => {
     switch (activeTab) {
@@ -57,11 +75,22 @@ export const App: React.FC = () => {
   return (
     <div className="flex min-h-screen bg-slate-50">
       {/* Sidebar Navigation */}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      />
 
       {/* Main Content Workspace */}
       <div className="flex-1 flex flex-col min-w-0">
-        <Navbar title={header.title} subtitle={header.subtitle} dbStatus={dbStatus} />
+        <Navbar
+          title={header.title}
+          subtitle={header.subtitle}
+          dbStatus={dbStatus}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
 
         <main className="flex-1 p-8 max-w-7xl w-full mx-auto">
           {activeTab === 'dashboard' && <DashboardPage onNavigate={setActiveTab} />}

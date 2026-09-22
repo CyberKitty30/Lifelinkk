@@ -9,15 +9,20 @@ import {
   UserCheck,
   ShieldAlert,
   Database,
-  HeartPulse
+  HeartPulse,
+  LogOut,
+  User
 } from 'lucide-react';
+import { AuthUser } from '../types';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  currentUser: AuthUser | null;
+  onLogout: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser, onLogout }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'donors', label: 'Donors', icon: Users },
@@ -33,20 +38,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   return (
     <aside className="w-64 bg-slate-900 text-white flex flex-col h-screen sticky top-0 shadow-xl border-r border-slate-800 z-30">
       {/* Brand Header */}
-      <div className="p-6 border-b border-slate-800/80 flex items-center space-x-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-red-600 to-rose-500 flex items-center justify-center shadow-lg shadow-red-900/30">
-          <HeartPulse className="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h1 className="font-extrabold text-lg text-white tracking-tight leading-none">LifeLink</h1>
-          <p className="text-[10px] text-red-400 font-semibold tracking-wider uppercase mt-1">Blood Management</p>
+      <div className="p-5 border-b border-slate-800/80 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-red-600 to-rose-500 flex items-center justify-center shadow-lg shadow-red-900/30">
+            <HeartPulse className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="font-extrabold text-lg text-white tracking-tight leading-none">LifeLink</h1>
+            <p className="text-[10px] text-red-400 font-semibold tracking-wider uppercase mt-1">Blood Management</p>
+          </div>
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
-        <div className="px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-          Main Navigation
+      {/* Navigation Links */}
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          System Modules
         </div>
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -77,16 +84,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         })}
       </nav>
 
-      {/* Academic Viva Footer Banner */}
-      <div className="p-4 m-3 rounded-xl bg-slate-800/80 border border-slate-700/60 text-xs">
-        <div className="flex items-center space-x-2 text-slate-300 font-semibold mb-1">
-          <Database className="w-4 h-4 text-red-400" />
-          <span>DBMS Viva Project</span>
+      {/* User Session Footer Card */}
+      {currentUser && (
+        <div className="p-3.5 m-3 rounded-2xl bg-slate-950 border border-slate-800/80 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-xl bg-slate-800 text-white font-bold flex items-center justify-center text-xs border border-slate-700">
+                {currentUser.name.charAt(0)}
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-xs text-white truncate max-w-[120px]">{currentUser.name}</p>
+                <p className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">{currentUser.role}</p>
+              </div>
+            </div>
+
+            <button
+              onClick={onLogout}
+              title="Log Out & Switch User"
+              className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-900 rounded-lg transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-        <p className="text-[11px] text-slate-400 leading-snug">
-          Relational 3NF PostgreSQL DB with parameterized SQL queries.
-        </p>
-      </div>
+      )}
     </aside>
   );
 };

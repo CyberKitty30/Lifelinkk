@@ -9,8 +9,12 @@ import * as patientCtrl from '../controllers/patientController';
 import * as staffCtrl from '../controllers/staffController';
 import * as dashboardCtrl from '../controllers/dashboardController';
 import * as analyticsCtrl from '../controllers/analyticsController';
+import * as authCtrl from '../controllers/authController';
 
 const router = Router();
+
+// Auth Route
+router.post('/auth/login', authCtrl.login);
 
 // Dashboard Route
 router.get('/dashboard/stats', dashboardCtrl.getDashboardStats);
