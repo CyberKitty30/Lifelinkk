@@ -60,6 +60,12 @@ export const Navbar: React.FC<NavbarProps> = ({ title, subtitle, dbStatus, curre
           ></span>
         </div>
 
+        {/* Global Multi-Device Cloud Sync Indicator */}
+        <div className="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold shadow-2xs">
+          <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping"></span>
+          <span>Live Multi-Device Sync</span>
+        </div>
+
         {/* Security & Validation Indicator */}
         <div className="hidden lg:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
           <ShieldCheck className="w-4 h-4 text-emerald-600" />

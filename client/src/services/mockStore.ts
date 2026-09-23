@@ -1,4 +1,4 @@
-// LifeLink Client-Side Database Store with LocalStorage Persistence for Static Hosting
+// LifeLink Global Real-Time Cloud Database Store with Cross-Device Synchronization
 import {
   Donor,
   Donation,
@@ -11,6 +11,8 @@ import {
   DonationCenter
 } from '../types';
 
+const CLOUD_DB_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a0cc676f107542';
+
 export class MockDataStore {
   donors: Donor[] = [];
   donationCenters: DonationCenter[] = [];
@@ -22,25 +24,23 @@ export class MockDataStore {
   bloodRequests: BloodRequest[] = [];
   bloodIssues: BloodIssue[] = [];
 
+  isCloudSynced: boolean = false;
+  lastCloudSync: string | null = null;
+  syncListeners: Array<() => void> = [];
+
   constructor() {
-    this.checkVersionAndPurgeLegacy();
     this.seedCentersOnly();
     this.loadFromLocalStorage();
+    this.fetchFromCloud();
+    this.startAutoCloudPoll();
   }
 
-  checkVersionAndPurgeLegacy() {
-    try {
-      const VERSION_TAG = 'lifelink_clean_db_v3';
-      if (typeof localStorage !== 'undefined') {
-        const storedVer = localStorage.getItem('lifelink_version_tag');
-        if (storedVer !== VERSION_TAG) {
-          this.clearAllData();
-          localStorage.setItem('lifelink_version_tag', VERSION_TAG);
-        }
-      }
-    } catch (e) {
-      console.error('Failed version check:', e);
-    }
+  addSyncListener(cb: () => void) {
+    this.syncListeners.push(cb);
+  }
+
+  notifySyncListeners() {
+    this.syncListeners.forEach((cb) => cb());
   }
 
   seedCentersOnly() {
@@ -51,6 +51,73 @@ export class MockDataStore {
       { center_id: 4, center_name: 'Sanjeevani Blood Center', address: '102 Ring Road, Lajpat Nagar', city: 'Delhi', phone: '+91 98100 44556', operating_hours: '08:30 AM - 07:30 PM' },
       { center_id: 5, center_name: 'Sahyadri Life Line Center', address: '15 FC Road, Shivaji Nagar', city: 'Pune', phone: '+91 98500 55667', operating_hours: '09:00 AM - 05:00 PM' }
     ];
+  }
+
+  async fetchFromCloud() {
+    try {
+      const res = await fetch(CLOUD_DB_URL);
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.data) {
+          const d = json.data;
+          if (Array.isArray(d.donors)) this.donors = d.donors;
+          if (Array.isArray(d.donations)) this.donations = d.donations;
+          if (Array.isArray(d.bloodUnits)) this.bloodUnits = d.bloodUnits;
+          if (Array.isArray(d.hospitals)) this.hospitals = d.hospitals;
+          if (Array.isArray(d.patients)) this.patients = d.patients;
+          if (Array.isArray(d.bloodRequests)) this.bloodRequests = d.bloodRequests;
+          if (Array.isArray(d.bloodIssues)) this.bloodIssues = d.bloodIssues;
+          if (Array.isArray(d.staff)) this.staff = d.staff;
+
+          this.isCloudSynced = true;
+          this.lastCloudSync = new Date().toLocaleTimeString();
+          this.saveToLocalStorageOnly();
+          this.notifySyncListeners();
+        }
+      }
+    } catch (e) {
+      console.warn('Cloud DB fetch fallback to local:', e);
+    }
+  }
+
+  async pushToCloud() {
+    try {
+      const payload = {
+        name: 'LifeLink Shared Global Database',
+        data: {
+          donors: this.donors,
+          donations: this.donations,
+          bloodUnits: this.bloodUnits,
+          hospitals: this.hospitals,
+          patients: this.patients,
+          bloodRequests: this.bloodRequests,
+          bloodIssues: this.bloodIssues,
+          staff: this.staff
+        }
+      };
+
+      const res = await fetch(CLOUD_DB_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        this.isCloudSynced = true;
+        this.lastCloudSync = new Date().toLocaleTimeString();
+        this.notifySyncListeners();
+      }
+    } catch (e) {
+      console.warn('Cloud DB push failed:', e);
+    }
+  }
+
+  startAutoCloudPoll() {
+    if (typeof window !== 'undefined') {
+      setInterval(() => {
+        this.fetchFromCloud();
+      }, 4000);
+    }
   }
 
   loadFromLocalStorage() {
@@ -84,6 +151,11 @@ export class MockDataStore {
   }
 
   saveToLocalStorage() {
+    this.saveToLocalStorageOnly();
+    this.pushToCloud();
+  }
+
+  saveToLocalStorageOnly() {
     try {
       localStorage.setItem('lifelink_donors', JSON.stringify(this.donors));
       localStorage.setItem('lifelink_hospitals', JSON.stringify(this.hospitals));
@@ -107,14 +179,8 @@ export class MockDataStore {
     this.patients = [];
     this.bloodRequests = [];
     this.bloodIssues = [];
-    localStorage.removeItem('lifelink_donors');
-    localStorage.removeItem('lifelink_hospitals');
-    localStorage.removeItem('lifelink_patients');
-    localStorage.removeItem('lifelink_donations');
-    localStorage.removeItem('lifelink_units');
-    localStorage.removeItem('lifelink_requests');
-    localStorage.removeItem('lifelink_issues');
-    localStorage.removeItem('lifelink_staff');
+    this.saveToLocalStorageOnly();
+    this.pushToCloud();
   }
 }
 
